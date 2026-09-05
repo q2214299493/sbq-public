@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "projections": {
+    "tasks/current_task.md#current_task": {
+      "source_event_id": "task-fe110-ch-h-coadsorption-bc-submitted-20260808",
+      "source_event_sha256": "fe1a27aac9bf403a1fcfb29ebbe12b614d4018b084d5793bf9e9ff54fea00bdd",
+      "target_sha256_before": "f9922b0c736a22aa959dd85394bd595c1d823cc1612b63e799ab0a30a222394a",
+      "target_sha256_after": "65a90022db44bf802cac9a545185927ae15c24626ab3f165b6eb7b42d8990066",
+      "managed_block_sha256": "accadb76bc32f9f16ed44d356e87dfa2fcdd385085b49670c2239e43d3a5e6ab"
+    },
+    "docs/02_CURRENT_STATE.md#active-fe-110-co-dissociation-test-current-gate": {
+      "source_event_id": "state-fe110-co-electronic-barrier-local-frequency-completed-20260807",
+      "source_event_sha256": "3c2d66bb8afe35e963eebdfdb4f4e08090a39eff9777b53b6bcc15665855266d",
+      "target_sha256_before": "1a855b127bfc0abba0e6a7bdba88c92f8d264232a7e38f8f38ad2ae063a86bd6",
+      "target_sha256_after": "7484f0dfe195322767d8238ec75eed9b514e20f2699ac396d8bee69b585ac51e",
+      "managed_block_sha256": "13ba83b0de84570441754f7139b1243022e70c28efa24870d360945ac3cfd7fe"
+    },
+    "docs/06_MODULE_MAP.md#module_row:transition_state_search": {
+      "source_event_id": "module-gate-fe110-co-formal-barrier-registered-20260807",
+      "source_event_sha256": "78f97db7d8955bdbe41acab3fe8ed034887f3c1f61d24ee0b69b469eea96c8be",
+      "target_sha256_before": "df0c341fd39a985ee712258ca08086e91c3776027ce9444f00bc60198e4fe0e2",
+      "target_sha256_after": "757c8d09cf451d36abb0d7e2dcaf158e7b93491b135c83b2183ad77a385b17af",
+      "managed_unit": {
+        "kind": "module_row",
+        "id": "transition_state_search"
+      },
+      "managed_unit_sha256": "5ab0c14a3c10eb6031d09ec57b536c3a0d3c2b8ae2d37c3aea404cc26de648d7"
+    },
+    "tasks/backlog.md#task_backlog_events": {
+      "source_event_id": "lifecycle-views-adopted-a82839d3b509076163c7412a",
+      "source_event_sha256": "dd197bb2674ea45eb0129b5f5cad007aa30d9144e96ed6ee4c86189080555eef",
+      "target_sha256_before": "42bdd77fb8206c3f03a1684eb0efcc0fac0eb8f6f5b751efb0b8791548f34dc4",
+      "target_sha256_after": "909ab9e2a8921adacd9b6f2054819a8a435320cf71275be0b33c8e41f5000a30",
+      "managed_block_sha256": "395c9af43b4a46502d4b8f3a26b30094651da82ebe7f407ac0e625e590141105"
+    },
+    "docs/04_ERROR_LOG.md#task_error_events": {
+      "source_event_id": "lifecycle-views-adopted-a82839d3b509076163c7412a",
+      "source_event_sha256": "dd197bb2674ea45eb0129b5f5cad007aa30d9144e96ed6ee4c86189080555eef",
+      "target_sha256_before": "5aa3cc387dd6d0747e930c78a32814e27f68b57fe530ecd63ca2def6a26b8aff",
+      "target_sha256_after": "5cab116cc1a94845b7bb8eea0d33d627393ca67fa581f7d0faf48df136f23392",
+      "managed_block_sha256": "a62d77f930a36e26bc9bd34ff89448075d001d0ab7707dae4107eb630c6095a5"
+    },
+    "docs/03_DECISIONS_LOG.md#task_decision_events": {
+      "source_event_id": "lifecycle-views-adopted-a82839d3b509076163c7412a",
+      "source_event_sha256": "dd197bb2674ea45eb0129b5f5cad007aa30d9144e96ed6ee4c86189080555eef",
+      "target_sha256_before": "802d8ed074cf329cfe4a60660a66e0486c9764775fbd40b09db07c80d31e1b00",
+      "target_sha256_after": "260d81f63f971492794152601f88c61ed6d6d33bf3c2560aeb4cea76fa29a7f2",
+      "managed_block_sha256": "3265bed51b28892cd80cacbb8083899157bccaf25a434c0b1773c43741762e36"
+    },
+    "docs/08_HISTORICAL_RESULTS.md#task_history_events": {
+      "source_event_id": "task-completed-7f21fefbbda64053a163a326",
+      "source_event_sha256": "868cbd45228ab861a02c621ee0c81219bf662c144917987da231213412ab17d1",
+      "target_sha256_before": "bbf9c3a936084b86a4c5c01bdeef7875f34cc86fc669a613cd6a3c3adee1d3ec",
+      "target_sha256_after": "b08d5dd488a0b3807965c4fc8dfe7d937f6ff9dcaa3910621e127edabbb439b6",
+      "managed_block_sha256": "0baf601ed9f98ab6fafba44b36e8f02c9f3f684f1a0912917d368d066f85d498"
+    },
+    "docs/06_MODULE_MAP.md#module_row:ts_vibrational_validation": {
+      "source_event_id": "module-gate-ts-vibrational-validation-dimer-local-frequency-completed-20260807",
+      "source_event_sha256": "fa56f39fdd7ad9f60f95198342cd383070ae9d82a887b265e973aa137ac5bc5e",
+      "target_sha256_before": "757c8d09cf451d36abb0d7e2dcaf158e7b93491b135c83b2183ad77a385b17af",
+      "target_sha256_after": "ca5ff06150d71c61a8b1c435db799098d149e0f01c32d5cae32f7e35b1f52459",
+      "managed_unit": {
+        "kind": "module_row",
+        "id": "ts_vibrational_validation"
+      },
+      "managed_unit_sha256": "15f66e126ee378498051ce6c2c8f56c0a8a1357784af45bbd6d6a3697acb6357"
+    }
+  }
+}

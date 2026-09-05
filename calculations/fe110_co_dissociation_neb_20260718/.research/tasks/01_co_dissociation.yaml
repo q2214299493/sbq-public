@@ -1,0 +1,16 @@
+task_id: fe110_co_dissociation_full_test
+status: ordinary_neb_submitted
+current_step: monitor_job_9631737_and_gate_each_image_before_refinement
+authorized_scope:
+  - whitelist_retrieval
+  - AQCat25_candidate_generation_on_MZ73
+  - VASP_NEB_CI-NEB_or_DIMER_on_sunboquan-codex
+  - frequency_connectivity_and_matched_static_validation
+forbidden:
+  - direct_GPU_to_VASP_transfer
+  - treating_ML_values_as_DFT_results
+jobs:
+  matched_static_is: 9631646
+  matched_static_fs: 9631647
+  aqcat25_ts_candidate: 737
+  ordinary_neb: 9631737
