@@ -54,6 +54,31 @@ def test_runtime_backend_contract_rejects_weakened_authority(tmp_path: Path) -> 
         require_gpu_backend("other-host", "Slurm")
 
 
+@pytest.mark.parametrize("path", ["/home/sbq/sbq/../outside", "/home/sbq/sbq/a/../../outside"])
+def test_gpu_write_path_rejects_traversal(path):
+    with pytest.raises(ValueError, match="traversal"):
+        require_gpu_write_path(path)
+
+
+@pytest.mark.parametrize("remote_dir,potcar", [
+    ("~/sbq/../outside", "~/sbq/POTCAR"),
+    ("~/sbq/a/../../outside", "~/sbq/POTCAR"),
+    ("~/sbq/job", "~/sbq/../POTCAR"),
+    ("~/sbq/job;id", "~/sbq/POTCAR"),
+])
+def test_submission_rejects_path_before_calculation_filesystem_or_network(tmp_path, monkeypatch, remote_dir, potcar):
+    def forbidden(*args, **kwargs):
+        pytest.fail("invalid remote path reached a filesystem or network operation")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "exists", forbidden)
+        patch.setattr(submission, "_run", forbidden)
+        patch.setattr(submission, "load_json_object", forbidden)
+        patch.setattr(submission, "preflight", forbidden)
+        with pytest.raises(ValueError):
+            submission.submit(tmp_path, tmp_path / "decision.json", "sunboquan-codex", remote_dir, potcar, "a" * 64, "SUBMIT_VASP")
+
+
 def test_runtime_backend_contract_keeps_dimer_connectivity_diagnostic(
     tmp_path: Path,
 ) -> None:

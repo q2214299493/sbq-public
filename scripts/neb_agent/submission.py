@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -13,6 +14,12 @@ from scripts.convergence.common import EXTERNAL_COMMAND_TIMEOUT_SECONDS
 from scripts.execution_backends import load_execution_backends, require_vasp_backend
 from scripts.neb_agent.pilot_validation import validate_pilot_result
 from scripts.neb_agent.utils_structure import numbered_image_dirs, read_poscar
+from scripts.path_authority import (
+    build_remote_containment_guard,
+    remote_shell_path,
+    require_remote_child,
+    require_remote_path,
+)
 from scripts.ts_strategy_engine.dimer_gate import validate_modecar_bundle
 from scripts.ts_strategy_engine.execution_gate import require_action
 from scripts.ts_strategy_engine.learning_evidence import vasp_input_hashes
@@ -22,7 +29,6 @@ from scripts.ts_validation.dimer_frequency_gate import evaluate_dimer_frequency_
 from scripts.vasp_result_gate import read_incar_values
 
 
-REMOTE_PATH = re.compile(r"^~/sbq/[A-Za-z0-9_./-]+$")
 JOB_ID = re.compile(r"Job <(\d+)>")
 SUBMISSION_ATTEMPT_FILE = "submission_attempt.json"
 SUBMISSION_RECORD_FILE = "submission_record.json"
@@ -333,6 +339,12 @@ def submit(
 ) -> dict[str, Any]:
     configured = load_execution_backends().vasp
     backend = require_vasp_backend(host, configured.name)
+    remote_dir = require_remote_path(
+        remote_dir, root="~/sbq", label="VASP remote calculation directory", allow_root=False
+    )
+    potcar_source = require_remote_path(
+        potcar_source, root="~/sbq", label="VASP POTCAR source", allow_root=False
+    )
     attempt_path = workdir / SUBMISSION_ATTEMPT_FILE
     record_path = workdir / SUBMISSION_RECORD_FILE
     if record_path.exists():
@@ -345,8 +357,6 @@ def submit(
             f"is unresolved; inspect {attempt_path} and follow "
             "SUBMISSION_RECOVERY.md"
         )
-    if not REMOTE_PATH.fullmatch(remote_dir) or not REMOTE_PATH.fullmatch(potcar_source):
-        raise ValueError("remote paths must remain under ~/sbq and contain no shell metacharacters")
     report = load_json_object(workdir / "submission_preflight.json")
     current = preflight(workdir, report["kind"])
     if not current["passed"] or current["bundle_sha256"] != report["bundle_sha256"]:
@@ -361,17 +371,25 @@ def submit(
         raise ValueError("strategy retry evidence changed; regenerate the execution gate decision")
     require_action(decision_path, action, decision["state_sha256"])
     parent, name = remote_dir.rsplit("/", 1)
+    parent = require_remote_path(parent, root="~/sbq", label="VASP remote calculation parent")
     if workdir.name != name:
         raise ValueError("local and remote calculation directory names must match")
+    paths = [parent, remote_dir, potcar_source, f"{remote_dir}/POTCAR"]
+    paths.extend(require_remote_child(relative, root=remote_dir) for relative in current["files"])
+    path_guard = build_remote_containment_guard("~/sbq", paths)
+    remote_dir_shell = remote_shell_path(remote_dir)
+    parent_shell = remote_shell_path(parent)
+    potcar_source_shell = remote_shell_path(potcar_source)
     if reuse_uploaded:
         _verify_remote_bundle(host, remote_dir, current["files"])
     else:
-        _run(["ssh", host, f"test ! -e {remote_dir} && mkdir -p {parent}"])
+        _run(["ssh", host, f"{path_guard}; test ! -e {remote_dir_shell} && "
+              f"test ! -L {remote_dir_shell} && mkdir -p -- {parent_shell}"])
         _upload_manifest_files(host, parent, workdir, current["files"])
     remote_check = (
-        f"cp {potcar_source} {remote_dir}/POTCAR && "
-        f"test \"$(sha256sum {remote_dir}/POTCAR | awk '{{print $1}}')\" = {potcar_sha256} && "
-        f"cd {remote_dir} && test -s INCAR && test -s KPOINTS && test -s POTCAR && "
+        f"{path_guard}; cp -- {potcar_source_shell} {remote_dir_shell}/POTCAR && "
+        f"test \"$(sha256sum -- {remote_dir_shell}/POTCAR | awk '{{print $1}}')\" = {shlex.quote(potcar_sha256)} && "
+        f"cd -- {remote_dir_shell} && test -s INCAR && test -s KPOINTS && test -s POTCAR && "
         "bsub script.lsf"
     )
     write_json(
@@ -475,24 +493,37 @@ def _run(argv: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 def _verify_remote_bundle(host: str, remote_dir: str, files: dict[str, str]) -> None:
+    remote_dir = require_remote_path(remote_dir, root="~/sbq", allow_root=False)
+    paths = [require_remote_child(name, root=remote_dir) for name in files]
+    path_guard = build_remote_containment_guard("~/sbq", [remote_dir, *paths])
     checks = [
-        f"test \"$(sha256sum {remote_dir}/{name} | awk '{{print $1}}')\" = {digest}"
-        for name, digest in files.items()
+        f"test \"$(sha256sum -- {remote_shell_path(path)} | awk '{{print $1}}')\" = {shlex.quote(digest)}"
+        for path, digest in zip(paths, files.values(), strict=True)
     ]
-    _run(["ssh", host, " && ".join([f"test -d {remote_dir}", *checks])])
+    _run(["ssh", host, f"{path_guard}; " + " && ".join([f"test -d {remote_shell_path(remote_dir)}", *checks])])
 
 
 def _upload_manifest_files(
     host: str, remote_parent: str, workdir: Path, files: dict[str, str]
 ) -> None:
     """Upload only hash-bound preflight files, preserving their relative paths."""
+    remote_parent = require_remote_path(remote_parent, root="~/sbq", label="VASP upload parent")
+    remote_dir = require_remote_child(workdir.name, root=remote_parent, label="VASP upload directory")
+    paths = [require_remote_child(relative, root=remote_dir) for relative in files]
+    path_guard = build_remote_containment_guard("~/sbq", [remote_parent, remote_dir, *paths])
+    remote_dir_shell = remote_shell_path(remote_dir)
+    _run(["ssh", host, f"{path_guard}; test ! -e {remote_dir_shell} && test ! -L {remote_dir_shell}"])
     with tempfile.TemporaryDirectory(prefix="vasp-submit-") as temporary:
         staged = Path(temporary) / workdir.name
-        for relative in files:
+        for path in paths:
+            relative = path[len(remote_dir) + 1:]
             source = workdir / relative
             target = staged / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
+        # SCP/SFTP expand ~/ themselves; a shell $HOME expression breaks SFTP.
+        # The normalized argument has already passed the shared character and
+        # boundary checks. Never use it unvalidated or interpolate shell text.
         _run(["scp", "-r", str(staged), f"{host}:{remote_parent}/"])
 
 

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 
 import yaml
+
+from scripts.path_authority import require_remote_path
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -134,8 +136,4 @@ def require_gpu_write_path(
     path: Path = DEFAULT_CONFIG,
 ) -> str:
     backend = load_execution_backends(path).gpu
-    boundary = PurePosixPath(backend.remote_write_boundary)
-    candidate = PurePosixPath(_text(value, "AQCat GPU write path"))
-    if candidate != boundary and boundary not in candidate.parents:
-        raise ValueError("AQCat GPU write path escapes the configured write boundary")
-    return candidate.as_posix()
+    return require_remote_path(value, root=backend.remote_write_boundary, label="AQCat GPU write path")

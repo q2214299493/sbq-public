@@ -300,6 +300,9 @@ def test_upload_stages_only_manifest_files(tmp_path: Path, monkeypatch) -> None:
     uploaded: list[str] = []
 
     def inspect_upload(argv: list[str]):
+        if argv[0] == "ssh":
+            assert "PATH_AUTHORITY_ESCAPE_REJECTED" in argv[2]
+            return
         staged = Path(argv[2])
         uploaded.extend(
             path.relative_to(staged).as_posix()
@@ -476,3 +479,50 @@ def test_successful_submit_replaces_attempt_with_success_record(
     assert result["job_id"] == "123"
     assert not (workdir / submission.SUBMISSION_ATTEMPT_FILE).exists()
     assert (workdir / submission.SUBMISSION_RECORD_FILE).is_file()
+
+
+@pytest.mark.parametrize("helper", ["upload", "verify"])
+@pytest.mark.parametrize("relative", ["../INCAR", "/tmp/INCAR", "INCAR;id", "~/other/INCAR"])
+def test_remote_helpers_reject_unsafe_manifest_before_io(tmp_path, monkeypatch, helper, relative):
+    def forbidden(*args, **kwargs):
+        pytest.fail("unsafe manifest path reached filesystem/network")
+
+    monkeypatch.setattr(submission, "_run", forbidden)
+    monkeypatch.setattr(submission.tempfile, "TemporaryDirectory", forbidden)
+    with pytest.raises(ValueError):
+        if helper == "upload":
+            submission._upload_manifest_files("host", "~/sbq", tmp_path / "job", {relative: "hash"})
+        else:
+            submission._verify_remote_bundle("host", "~/sbq/job", {relative: "hash"})
+
+
+@pytest.mark.parametrize("helper", ["upload", "verify"])
+def test_remote_helpers_reject_traversal_without_submit(tmp_path, monkeypatch, helper):
+    monkeypatch.setattr(submission, "_run", lambda *args: pytest.fail("invalid path reached network"))
+    with pytest.raises(ValueError, match="traversal"):
+        if helper == "upload":
+            submission._upload_manifest_files("host", "~/sbq/../outside", tmp_path / "job", {})
+        else:
+            submission._verify_remote_bundle("host", "~/sbq/../outside", {})
+
+
+def test_submit_checks_each_remote_file_and_quotes_digest(tmp_path, monkeypatch):
+    workdir, decision_path, report = _mock_submit_dependencies(tmp_path, monkeypatch)
+    report["files"] = {"INCAR": "a" * 64, "00/POSCAR": "b" * 64, "script.lsf": "c" * 64}
+    commands = []
+
+    def run(argv):
+        commands.append(argv[-1])
+        return type("Result", (), {"stdout": "Job <123> is submitted"})()
+
+    monkeypatch.setattr(submission, "_run", run)
+    submission.submit(workdir, decision_path, "sunboquan-codex", "~/sbq//job/.", "~/sbq/POTCAR",
+                      "a" * 64, "SUBMIT_DIAGNOSTIC_VASP", reuse_uploaded=True)
+    assert len(commands) == 2
+    assert all(command.startswith("set -eu;") for command in commands)
+    for command in commands:
+        assert '"$HOME"/sbq/job/00/POSCAR' in command
+        assert "PATH_AUTHORITY_ESCAPE_REJECTED" in command
+    final = commands[-1]
+    assert '"$HOME"/sbq/job/POTCAR' in final
+    assert final.index("PATH_AUTHORITY_ESCAPE_REJECTED") < final.index("cp --") < final.index("bsub script.lsf")
