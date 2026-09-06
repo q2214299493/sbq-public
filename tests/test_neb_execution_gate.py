@@ -147,7 +147,7 @@ def test_unverified_quality_electronic_flag_cannot_trigger_hard_stop() -> None:
     assert decision["ALLOWED_ACTIONS"] == ["CONTINUE_JOB"]
 
 
-def test_file_bound_hard_failure_can_authorize_exact_running_job(tmp_path: Path) -> None:
+def test_file_bound_hard_failure_can_authorize_exact_running_job(tmp_path: Path, bound_gate) -> None:
     geometry = tmp_path / "geometry.json"
     analysis_path = tmp_path / "analysis.json"
     thresholds = tmp_path / "thresholds.yaml"
@@ -219,13 +219,15 @@ def test_file_bound_hard_failure_can_authorize_exact_running_job(tmp_path: Path)
     )
     decision = build_decision(request, output)
     assert decision["ALLOWED_ACTIONS"] == ["STOP_JOB"]
-    require_action(output, "STOP_JOB", decision["state_sha256"])
+    output = bound_gate(decision["EVIDENCE"])
+    require_action(output, "STOP_JOB")
+    analysis_path = output.parent / "analysis.json"
     analysis_path.write_text(json.dumps(analysis()), encoding="utf-8")
-    with pytest.raises(ValueError, match="authority fields"):
-        require_action(output, "STOP_JOB", decision["state_sha256"])
+    with pytest.raises(ValueError, match="stale"):
+        require_action(output, "STOP_JOB")
 
 
-def test_file_bound_user_request_can_cancel_exact_pending_job(tmp_path: Path) -> None:
+def test_file_bound_user_request_can_cancel_exact_pending_job(tmp_path: Path, bound_gate) -> None:
     geometry = tmp_path / "geometry.json"
     analysis_path = tmp_path / "analysis.json"
     thresholds = tmp_path / "thresholds.yaml"
@@ -298,7 +300,8 @@ def test_file_bound_user_request_can_cancel_exact_pending_job(tmp_path: Path) ->
     decision = build_decision(request, output)
     assert decision["DECISION"] == "STOP_USER_REQUESTED"
     assert decision["ALLOWED_ACTIONS"] == ["STOP_JOB"]
-    require_action(output, "STOP_JOB", decision["state_sha256"])
+    output = bound_gate(decision["EVIDENCE"])
+    require_action(output, "STOP_JOB")
 
 
 def test_transient_nelm_high_force_and_energy_dip_are_warnings_only() -> None:
@@ -383,7 +386,7 @@ def test_missing_path_binding_is_unresolved_not_a_stop() -> None:
     assert decision["ALLOWED_ACTIONS"] == []
 
 
-def test_submission_requires_current_gate_decision(tmp_path: Path) -> None:
+def test_submission_requires_current_gate_decision(tmp_path: Path, bound_gate) -> None:
     decision = decide_execution(
         {"status": "PASS"},
         analysis(status="NO_OUTPUT", images=[]),
@@ -392,17 +395,16 @@ def test_submission_requires_current_gate_decision(tmp_path: Path) -> None:
         path_reviewed=True,
         preflight={"kind": "ordinary_neb", "passed": True, "bundle_sha256": "a" * 64},
     )
-    path = tmp_path / "decision.json"
-    path.write_text(json.dumps(decision), encoding="utf-8")
-    require_action(path, "SUBMIT_VASP", decision["state_sha256"])
-    with pytest.raises(ValueError, match="stale"):
+    path = bound_gate(decision["EVIDENCE"])
+    require_action(path, "SUBMIT_VASP")
+    with pytest.raises(TypeError):
         require_action(path, "SUBMIT_VASP", "b" * 64)
     with pytest.raises(PermissionError):
-        require_action(path, "START_DIMER", decision["state_sha256"])
+        require_action(path, "START_DIMER")
     decision["schema_version"] = 1
     path.write_text(json.dumps(decision), encoding="utf-8")
     with pytest.raises(ValueError, match="complete authoritative"):
-        require_action(path, "SUBMIT_VASP", decision["state_sha256"])
+        require_action(path, "SUBMIT_VASP")
 
 
 def test_short_neb_pilot_is_diagnostic_only() -> None:
@@ -549,4 +551,4 @@ def test_tampered_action_cannot_bypass_authoritative_gate(tmp_path: Path) -> Non
     path = tmp_path / "tampered.json"
     path.write_text(json.dumps(decision), encoding="utf-8")
     with pytest.raises(ValueError, match="do not match"):
-        require_action(path, "SUBMIT_VASP", decision["state_sha256"])
+        require_action(path, "SUBMIT_VASP")

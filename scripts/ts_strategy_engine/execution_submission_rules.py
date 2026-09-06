@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .execution_decision import make_decision as _make_decision
-from .execution_evidence import authorized_actions, source_bindings_valid
+from .execution_evidence import authorized_actions, source_bindings_declared
 
 
 def vfa_submission_decision(evidence: dict[str, Any]) -> dict[str, Any] | None:
@@ -39,7 +39,7 @@ def connectivity_submission_decision(evidence: dict[str, Any]) -> dict[str, Any]
         and authorization.get("calculation_kind") == "connectivity_relax"
         and authorization.get("authorized_at")
         and authorization.get("source")
-        and source_bindings_valid(evidence, ("authorization", "preflight"))
+        and source_bindings_declared(evidence, ("authorization", "preflight"))
     )
     if (
         preflight.get("passed")

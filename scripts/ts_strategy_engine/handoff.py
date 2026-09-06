@@ -59,13 +59,12 @@ def prepare_dimer_handoff(
     reaction_indices: list[int],
     contract_binding: dict[str, Any],
     gate_decision: Path | None = None,
-    gate_state_sha256: str | None = None,
 ) -> Path:
     if not dry_run:
-        if gate_decision is None or gate_state_sha256 is None:
+        if gate_decision is None:
             raise SystemExit("DIMER handoff requires an authoritative PREPARE_DIMER_HANDOFF decision")
         try:
-            require_action(gate_decision, "PREPARE_DIMER_HANDOFF", gate_state_sha256)
+            require_action(gate_decision, "PREPARE_DIMER_HANDOFF")
         except (OSError, ValueError, PermissionError) as exc:
             raise SystemExit(str(exc)) from exc
     source = resolve_ts_candidate(source_image)

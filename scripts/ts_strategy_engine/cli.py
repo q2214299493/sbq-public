@@ -55,7 +55,6 @@ def _add_plan_parser(commands: argparse._SubParsersAction) -> None:
     planning.add_argument("--strategy-variant", help="Experimental learning variant; all existing gates still apply.")
     planning.add_argument("--rebuild", action="store_true")
     planning.add_argument("--gate-decision", type=Path)
-    planning.add_argument("--gate-state-sha256")
     planning.set_defaults(handler=_plan_command)
 
 def _add_path_parsers(commands: argparse._SubParsersAction) -> None:
@@ -106,7 +105,6 @@ def _add_dimer_parsers(commands: argparse._SubParsersAction) -> None:
     handoff.add_argument("--destination", type=Path, required=True)
     handoff.add_argument("--dry-run", action="store_true")
     handoff.add_argument("--gate-decision", type=Path)
-    handoff.add_argument("--gate-state-sha256")
     handoff.set_defaults(handler=_dimer_command)
     analysis = commands.add_parser("dimer-analyze", help="Parse DIMCAR/OUTCAR and gate DIMER convergence.")
     analysis.add_argument("--workdir", type=Path, required=True)
@@ -181,7 +179,6 @@ def _add_registry_parsers(commands: argparse._SubParsersAction) -> None:
     validation.add_argument("--validation-id", required=True)
     validation.add_argument("--analysis", type=Path, required=True)
     validation.add_argument("--gate-decision", type=Path, required=True)
-    validation.add_argument("--gate-state-sha256", required=True)
     validation.add_argument("--database", type=Path, default=DEFAULT_DATABASE)
     validation.set_defaults(handler=_record_validation_command)
 
@@ -204,7 +201,6 @@ def _add_registry_parsers(commands: argparse._SubParsersAction) -> None:
     )
     barrier.add_argument("--notes")
     barrier.add_argument("--gate-decision", type=Path, required=True)
-    barrier.add_argument("--gate-state-sha256", required=True)
     barrier.add_argument("--database", type=Path, default=DEFAULT_DATABASE)
     barrier.set_defaults(handler=_record_barrier_command)
 

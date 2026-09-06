@@ -41,7 +41,6 @@ class PlanRequest:
     images: int | None = None
     rebuild: bool = False
     gate_decision: Path | None = None
-    gate_state_sha256: str | None = None
     strategy_variant: str | None = None
 
 @dataclass(frozen=True)
@@ -156,7 +155,6 @@ def _initialize_path(
         list(waypoints),
         rebuild=request.rebuild,
         gate_decision=request.gate_decision,
-        gate_state_sha256=request.gate_state_sha256,
     )
     generated.update(_path_provenance(contract, fingerprint, strategy))
     if generated["status"] != "STOP":

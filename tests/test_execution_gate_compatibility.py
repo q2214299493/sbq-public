@@ -59,7 +59,6 @@ def test_execution_gate_public_signatures_remain_compatible() -> None:
     assert list(inspect.signature(execution_gate.require_action).parameters) == [
         "decision_path",
         "action",
-        "current_state_sha256",
     ]
     assert list(inspect.signature(execution_gate.validate_decision).parameters) == [
         "decision"

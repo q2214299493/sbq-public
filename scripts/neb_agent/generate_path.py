@@ -226,13 +226,12 @@ def generate_path(
     *,
     rebuild: bool = False,
     gate_decision: Path | None = None,
-    gate_state_sha256: str | None = None,
 ) -> dict:
     if rebuild:
-        if gate_decision is None or gate_state_sha256 is None:
+        if gate_decision is None:
             return _stop(method, ["REBUILD_PATH requires a current authoritative gate decision"])
         try:
-            require_action(gate_decision, "REBUILD_PATH", gate_state_sha256)
+            require_action(gate_decision, "REBUILD_PATH")
         except (OSError, ValueError, PermissionError) as exc:
             return _stop(method, [str(exc)])
     initial = read_poscar(initial_path)
@@ -294,7 +293,6 @@ def main() -> None:
     parser.add_argument("--waypoint", type=Path, action="append", default=[])
     parser.add_argument("--rebuild", action="store_true")
     parser.add_argument("--gate-decision", type=Path)
-    parser.add_argument("--gate-state-sha256")
     args = parser.parse_args()
     require_paths(args, "initial", "final")
     output_dir = args.output_dir or args.workdir / "path_candidate"
@@ -308,7 +306,6 @@ def main() -> None:
         args.waypoint,
         rebuild=args.rebuild,
         gate_decision=args.gate_decision,
-        gate_state_sha256=args.gate_state_sha256,
     )
     print(payload["status"])
     if payload["status"] == "STOP":

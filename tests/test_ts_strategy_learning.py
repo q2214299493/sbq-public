@@ -235,7 +235,7 @@ def test_vasp_preflight_actually_blocks_known_failure_before_remote_execution(db
     result = submission.preflight(job, "diagnostic_static", learning_database=db)
     assert not result["passed"]
     assert "strategy_retry:BLOCKED_KNOWN_FAILURE" in result["errors"]
-    monkeypatch.setattr(submission, "preflight", lambda *args: result)
+    monkeypatch.setattr(submission, "preflight", lambda *args, **kwargs: result)
     monkeypatch.setattr(submission, "_run", lambda *_: pytest.fail("remote execution must not occur"))
     with pytest.raises(ValueError, match="bundle changed"):
         submission.submit(job, tmp_path / "unused.json", "sunboquan-codex", "~/sbq/job", "~/sbq/pot", "a" * 64, "SUBMIT_DIAGNOSTIC_VASP")
@@ -289,10 +289,10 @@ def test_unified_cli_forwards_database_and_report_flags(db, tmp_path, capsys):
     assert "aqcat25_ba_sella" in capsys.readouterr().out
 
 
-def test_existing_validated_template_must_match_the_attempt_calculation(tmp_path):
+def test_existing_validated_template_must_match_the_attempt_calculation(tmp_path, bound_gate):
     from test_ts_strategy_engine import database, successful_record
     from scripts.ts_strategy_engine.templates import record_template
-    db = database(tmp_path / "registered.sqlite3")
+    db = database(tmp_path / "registered.sqlite3", bound_gate)
     template = successful_record()
     record_template(db, template)
     task_id = template["fingerprint"]["reaction_id"]
@@ -310,10 +310,10 @@ def test_existing_validated_template_must_match_the_attempt_calculation(tmp_path
 
 
 @pytest.mark.parametrize("candidate_succeeds", [True, False])
-def test_comparison_uses_real_registry_validation_and_detects_regression(tmp_path, candidate_succeeds):
+def test_comparison_uses_real_registry_validation_and_detects_regression(tmp_path, candidate_succeeds, bound_gate):
     from test_ts_strategy_engine import database, successful_record
     from scripts.ts_strategy_engine.templates import record_template
-    db = database(tmp_path / "registered.sqlite3")
+    db = database(tmp_path / "registered.sqlite3", bound_gate)
     template = successful_record()
     record_template(db, template)
     task = template["fingerprint"]["reaction_id"]
@@ -336,13 +336,13 @@ def test_comparison_uses_real_registry_validation_and_detects_regression(tmp_pat
     assert result["automatic_promotion"] is False
 
 
-def test_planner_selects_reference_branch_without_generating_a_neb(tmp_path):
+def test_planner_selects_reference_branch_without_generating_a_neb(tmp_path, bound_gate):
     import numpy as np
     import yaml
     from test_ts_strategy_engine import database, contract
     from scripts.neb_agent.utils_structure import Poscar, write_poscar
     from scripts.ts_strategy_engine.workflow import PlanRequest, plan
-    db = database(tmp_path / "registry.sqlite3")
+    db = database(tmp_path / "registry.sqlite3", bound_gate)
     task = contract()["reaction_id"]
     root = baseline(db, tmp_path, task_id=task, cases=[task])
     evidence = source(tmp_path)

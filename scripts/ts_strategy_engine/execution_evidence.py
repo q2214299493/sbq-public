@@ -8,6 +8,7 @@ import yaml
 from scripts.artifact_io import (
     load_json_object,
     sha256_file,
+    require_sha256,
     source_file_manifest_valid,
 )
 from scripts.scheduler_evidence import validate_stored_lsf_evidence
@@ -39,37 +40,84 @@ def load_bound_evidence(
     if not path.is_file():
         raise ValueError(f"gate evidence file not found: {path}")
     bindings[name] = {"path": str(path), "sha256": sha256_file(path)}
-    return _load_source(path, name)
+    return load_evidence_source(path, name)
 
 
-def source_bindings_valid(
-    evidence: dict[str, Any],
-    required: tuple[str, ...],
-) -> bool:
+def evidence_binding(binding: object) -> tuple[Path, str]:
+    """Validate a file reference without consulting the filesystem."""
+    if not isinstance(binding, dict) or set(binding) != {"path", "sha256"}:
+        raise ValueError("source binding must contain path and sha256")
+    value = binding["path"]
+    if not isinstance(value, str) or not value or "\x00" in value:
+        raise ValueError("source binding path must be non-empty text")
+    path = Path(value)
+    if not path.is_absolute():
+        raise ValueError("source binding path must be absolute")
+    return path, require_sha256(binding["sha256"], label="source binding hash")
+
+
+def validate_evidence_provenance(current: dict[str, Any], name: str) -> None:
+    """Check declared provenance; live manifest hashes are checked by the loader."""
+    if name == "scheduler":
+        validate_stored_lsf_evidence(current)
+    expected = TRUSTED_ARTIFACTS.get(name)
+    if expected:
+        if current.get("document_kind") != expected[0] or current.get("producer") != expected[1]:
+            raise ValueError(f"untrusted {name} artifact")
+        sources = current.get("source_files")
+        if not isinstance(sources, list) or not sources:
+            raise ValueError(f"{name} source file manifest missing")
+        for source in sources:
+            evidence_binding(source)
+
+
+def source_bindings_declared(evidence: dict[str, Any], required: tuple[str, ...]) -> bool:
+    """Decision reasoning only: declarations never authorize an execution."""
     bindings = evidence.get("source_bindings", {})
-    for name in required:
-        binding = bindings.get(name, {})
-        path = Path(str(binding.get("path", "")))
-        if not path.is_file() or binding.get("sha256") != sha256_file(path):
-            return False
-        try:
-            current = _load_source(path, name)
-        except (OSError, ValueError, yaml.YAMLError):
-            return False
-        if current != evidence.get(name):
-            return False
-        if name == "scheduler":
-            try:
-                validate_stored_lsf_evidence(current)
-            except ValueError:
+    if not isinstance(bindings, dict):
+        return False
+    try:
+        for name in required:
+            evidence_binding(bindings.get(name))
+            current = evidence.get(name)
+            if not isinstance(current, dict):
                 return False
-        expected = TRUSTED_ARTIFACTS.get(name)
-        if expected and (
-            current.get("document_kind") != expected[0]
-            or current.get("producer") != expected[1]
-            or not source_file_manifest_valid(current)
-        ):
-            return False
+            validate_evidence_provenance(current, name)
+    except (ValueError, TypeError, KeyError):
+        return False
+    return True
+
+
+def load_verified_evidence_source(
+    binding: object, name: str, snapshot: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Re-read one binding, preserving hash, payload and provenance checks."""
+    path, expected_hash = evidence_binding(binding)
+    actual_hash = sha256_file(path)
+    if actual_hash != expected_hash:
+        raise ValueError(f"{name} source hash changed")
+    current = load_evidence_source(path, name)
+    if current != snapshot:
+        raise ValueError(f"{name} source payload differs from snapshot")
+    # Detect replacement during parsing as well as changes since generation.
+    if sha256_file(path) != actual_hash:
+        raise ValueError(f"{name} source changed while reading")
+    if current:
+        validate_evidence_provenance(current, name)
+        if name in TRUSTED_ARTIFACTS and not source_file_manifest_valid(current):
+            raise ValueError(f"{name} source file manifest changed")
+    return current, {"path": str(path), "sha256": actual_hash}
+
+
+def source_bindings_valid(evidence: dict[str, Any], required: tuple[str, ...]) -> bool:
+    """Live binding/provenance check for compatibility; uses the shared loader."""
+    if not source_bindings_declared(evidence, required):
+        return False
+    try:
+        for name in required:
+            load_verified_evidence_source(evidence["source_bindings"][name], name, evidence[name])
+    except (OSError, ValueError, TypeError, yaml.YAMLError):
+        return False
     return True
 
 
@@ -137,7 +185,7 @@ def authorized_actions(
     stop_allowed = (
         stop_allowed
         and stop_eligible
-        and source_bindings_valid(evidence, required_sources)
+        and source_bindings_declared(evidence, required_sources)
     )
     return (("STOP_JOB",) if stop_allowed else ()) + tuple(other)
 
@@ -158,7 +206,7 @@ def diagnostic_actions(
     )
 
 
-def _load_source(path: Path, name: str) -> dict[str, Any]:
+def load_evidence_source(path: Path, name: str) -> dict[str, Any]:
     if name == "thresholds":
         value = yaml.safe_load(path.read_text(encoding="utf-8"))
         if not isinstance(value, dict):

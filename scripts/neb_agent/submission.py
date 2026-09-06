@@ -44,7 +44,7 @@ EXPECTED_ACTION = {
 NEB_KINDS = {"neb_pilot", "ordinary_neb", "ci_neb"}
 
 
-def preflight(workdir: Path, kind: str, *, learning_database: Path = LEARNING_DATABASE) -> dict[str, Any]:
+def preflight(workdir: Path, kind: str, *, learning_database: Path = LEARNING_DATABASE, write_report: bool = True) -> dict[str, Any]:
     required = _required_files(kind)
     missing = [name for name in required if not (workdir / name).is_file()]
     core_ready = all((workdir / name).is_file() for name in ("INCAR", "KPOINTS", "POTCAR.spec", "script.lsf"))
@@ -97,7 +97,8 @@ def preflight(workdir: Path, kind: str, *, learning_database: Path = LEARNING_DA
     if kind == "connectivity_relax":
         payload["connectivity_hard_gate_passed"] = not connectivity_gate.get("errors")
         payload["connectivity_hard_gate"] = connectivity_gate
-    write_json(workdir / "submission_preflight.json", payload)
+    if write_report:
+        write_json(workdir / "submission_preflight.json", payload)
     return payload
 
 
@@ -358,18 +359,17 @@ def submit(
             "SUBMISSION_RECOVERY.md"
         )
     report = load_json_object(workdir / "submission_preflight.json")
-    current = preflight(workdir, report["kind"])
+    current = preflight(workdir, report["kind"], write_report=False)
     if not current["passed"] or current["bundle_sha256"] != report["bundle_sha256"]:
         raise ValueError("submission bundle changed after preflight")
     if EXPECTED_ACTION.get(current["kind"]) != action:
         raise ValueError(f"{current['kind']} submission requires action {EXPECTED_ACTION.get(current['kind'])}")
-    decision = load_json_object(decision_path)
+    decision = require_action(decision_path, action)
     embedded = decision.get("EVIDENCE", {}).get("preflight", {})
     if embedded.get("bundle_sha256") != current["bundle_sha256"]:
         raise ValueError("gate decision is not bound to the current submission bundle")
     if embedded.get("strategy_retry_check", {}) != current.get("strategy_retry_check", {}):
         raise ValueError("strategy retry evidence changed; regenerate the execution gate decision")
-    require_action(decision_path, action, decision["state_sha256"])
     parent, name = remote_dir.rsplit("/", 1)
     parent = require_remote_path(parent, root="~/sbq", label="VASP remote calculation parent")
     if workdir.name != name:
@@ -427,8 +427,7 @@ def submit(
 def stop_job(decision_path: Path, host: str, job_id: str, output: Path) -> dict[str, Any]:
     configured = load_execution_backends().vasp
     backend = require_vasp_backend(host, configured.name)
-    decision = load_json_object(decision_path)
-    require_action(decision_path, "STOP_JOB", decision["state_sha256"])
+    decision = require_action(decision_path, "STOP_JOB")
     scheduler = decision.get("EVIDENCE", {}).get("scheduler", {})
     expected_status = scheduler.get("status")
     if (

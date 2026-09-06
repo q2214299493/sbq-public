@@ -6,6 +6,7 @@ from typing import Any
 from scripts.artifact_io import load_json_object, sha256_json
 
 from .execution_decision import ACTIONS, GATE_NAME
+from .execution_state import MUTABLE_EVIDENCE, require_live_execution_state
 from .execution_path_rules import INITIAL_SUBMISSIONS, blocking_decision, progress_decision
 from .execution_submission_rules import (
     connectivity_submission_decision,
@@ -79,20 +80,20 @@ def decide_execution(
 def require_action(
     decision_path: Path,
     action: str,
-    current_state_sha256: str,
 ) -> dict[str, Any]:
     decision = load_json_object(decision_path)
     validate_decision(decision)
-    if decision.get("state_sha256") != current_state_sha256:
-        raise ValueError("execution decision is stale for the current calculation state")
+    live = require_live_execution_state(decision)
+    expected = _decision_from_evidence(live)
     if action not in ACTIONS:
         raise ValueError(f"unknown NEB action: {action}")
-    if action not in decision.get("ALLOWED_ACTIONS", []):
+    if action not in expected["ALLOWED_ACTIONS"]:
         raise PermissionError(f"{action} is not authorized by {decision.get('DECISION')}")
     return decision
 
 
 def validate_decision(decision: dict[str, Any]) -> None:
+    """Validate snapshot integrity/authority only; execution also requires live state."""
     required = {
         "DECISION",
         "REASON_CODES",
@@ -120,7 +121,30 @@ def validate_decision(decision: dict[str, Any]) -> None:
         raise ValueError("execution decision does not bind its thresholds")
     if decision.get("state_sha256") != sha256_json(evidence):
         raise ValueError("execution decision evidence hash mismatch")
-    expected = decide_execution(
+    if (
+        set(evidence) != {*MUTABLE_EVIDENCE, "source_bindings", "climb", "path_reviewed"}
+        or any(not isinstance(evidence[name], dict) for name in MUTABLE_EVIDENCE)
+        or not isinstance(evidence["source_bindings"], dict)
+        or type(evidence["climb"]) is not bool
+        or type(evidence["path_reviewed"]) is not bool
+    ):
+        raise ValueError("execution decision evidence schema is malformed")
+    try:
+        expected = _decision_from_evidence(evidence)
+    except (TypeError, KeyError, AttributeError) as exc:
+        raise ValueError("execution decision evidence is malformed") from exc
+    authority_fields = required - {"EVIDENCE"}
+    if any(
+        decision.get(field) != expected.get(field)
+        for field in authority_fields
+    ):
+        raise ValueError(
+            "execution decision authority fields do not match its evidence"
+        )
+
+
+def _decision_from_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
+    return decide_execution(
         evidence.get("geometry", {}),
         evidence.get("analysis", {}),
         evidence["thresholds"],
@@ -133,11 +157,3 @@ def validate_decision(decision: dict[str, Any]) -> None:
         authorization=evidence.get("authorization"),
         source_bindings=evidence.get("source_bindings"),
     )
-    authority_fields = required - {"EVIDENCE"}
-    if any(
-        decision.get(field) != expected.get(field)
-        for field in authority_fields
-    ):
-        raise ValueError(
-            "execution decision authority fields do not match its evidence"
-        )

@@ -113,7 +113,6 @@ def record_matched_static_barrier(
     database: Path,
     *,
     gate_decision: Path,
-    gate_state_sha256: str,
     barrier_set_id: str,
     reaction_id: str,
     source_calculation_id: str,
@@ -124,7 +123,7 @@ def record_matched_static_barrier(
     learning_record: dict[str, Any],
     notes: str | None = None,
 ) -> dict[str, float | str]:
-    decision = require_action(gate_decision, "REPORT_FINAL_BARRIER", gate_state_sha256)
+    decision = require_action(gate_decision, "REPORT_FINAL_BARRIER")
     expected_claim = {
         "barrier_set_id": barrier_set_id,
         "reaction_id": reaction_id,
@@ -266,9 +265,8 @@ def record_ts_validation(
     payload: dict[str, Any],
     *,
     gate_decision: Path,
-    gate_state_sha256: str,
 ) -> str:
-    decision = require_action(gate_decision, "APPROVE_TS_CANDIDATE", gate_state_sha256)
+    decision = require_action(gate_decision, "APPROVE_TS_CANDIDATE")
     if sha256_json(decision["EVIDENCE"]["validation"]) != sha256_json(payload):
         raise ValueError("authoritative gate is not bound to this TS validation payload")
     _validate_ts_payload(payload)

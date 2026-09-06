@@ -324,10 +324,10 @@ def test_stop_job_accepts_gate_bound_pending_job(tmp_path: Path, monkeypatch) ->
     decision_path.write_text("{}", encoding="utf-8")
     calls: list[list[str]] = []
 
-    def fake_require(path: Path, action: str, state: str):
+    def fake_require(path: Path, action: str):
         assert path == decision_path
         assert action == "STOP_JOB"
-        assert state == "state"
+        return decision
 
     def fake_load(path: Path):
         assert path == decision_path
@@ -381,7 +381,7 @@ def _mock_submit_dependencies(
         return report if path.name == "submission_preflight.json" else decision
 
     monkeypatch.setattr(submission, "load_json_object", fake_load)
-    monkeypatch.setattr(submission, "preflight", lambda *args: report)
+    monkeypatch.setattr(submission, "preflight", lambda *args, **kwargs: report)
     monkeypatch.setattr(submission, "require_action", lambda *args: decision)
     monkeypatch.setattr(submission, "_upload_manifest_files", lambda *args: None)
     return workdir, decision_path, report
@@ -526,3 +526,87 @@ def test_submit_checks_each_remote_file_and_quotes_digest(tmp_path, monkeypatch)
     final = commands[-1]
     assert '"$HOME"/sbq/job/POTCAR' in final
     assert final.index("PATH_AUTHORITY_ESCAPE_REJECTED") < final.index("cp --") < final.index("bsub script.lsf")
+
+
+@pytest.mark.parametrize("source_name", ["analysis", "preflight", None])
+def test_bound_submission_checks_freshness_before_network(tmp_path, monkeypatch, bound_gate, source_name):
+    from functools import partial
+    from scripts.artifact_io import load_json_object, write_json
+
+    workdir = tmp_path / "job"
+    workdir.mkdir()
+    _common(workdir, "NSW=0\nIBRION=-1\n", 32)
+    (workdir / "POSCAR").write_text("synthetic static input", encoding="ascii")
+    database = tmp_path / "learning.sqlite3"
+    migrate_registry(database)
+    real_preflight = partial(submission.preflight, learning_database=database)
+    monkeypatch.setattr(submission, "preflight", real_preflight)
+    report = real_preflight(workdir, "diagnostic_static")
+    assert report["passed"]
+    path = bound_gate({"analysis": {"status": "NO_OUTPUT"}, "preflight": report})
+    # Bind the real preflight report consumed by submit, not a copied fixture.
+    from scripts.ts_strategy_engine.execution_gate_cli import build_decision
+    request_path = path.parent / "request.json"
+    request = load_json_object(request_path)
+    request["preflight_file"] = str(workdir / "submission_preflight.json")
+    write_json(request_path, request)
+    build_decision(request_path, path)
+    if source_name is None:
+        calls = []
+        def run(argv):
+            calls.append(argv)
+            return type("Result", (), {"stdout": "Job <123> is submitted"})()
+        monkeypatch.setattr(submission, "_run", run)
+        result = submission.submit(workdir, path, "sunboquan-codex", "~/sbq/job", "~/sbq/POTCAR",
+                                   "a" * 64, "SUBMIT_DIAGNOSTIC_VASP")
+        assert result["job_id"] == "123"
+        assert any("bsub script.lsf" in command[-1] for command in calls)
+        return
+    source = Path(load_json_object(path)["EVIDENCE"]["source_bindings"][source_name]["path"])
+    payload = load_json_object(source)
+    payload["mutation"] = True
+    write_json(source, payload)
+    before = source.read_bytes()
+    monkeypatch.setattr(submission, "_run", lambda *args: pytest.fail("stale decision reached network"))
+    with pytest.raises(ValueError, match="stale"):
+        submission.submit(workdir, path, "sunboquan-codex", "~/sbq/job", "~/sbq/POTCAR",
+                          "a" * 64, "SUBMIT_DIAGNOSTIC_VASP")
+    assert source.read_bytes() == before
+    assert not (workdir / submission.SUBMISSION_ATTEMPT_FILE).exists()
+
+
+@pytest.mark.parametrize("live_status", ["RUN", "PEND", "DONE"])
+def test_stop_keeps_real_gate_and_live_scheduler_check(tmp_path, monkeypatch, bound_gate, scheduler_snapshot, live_status):
+    path = bound_gate({
+        "scheduler": scheduler_snapshot("RUN"),
+        "authorization": {
+            "schema_version": 1, "document_kind": "user_execution_authorization", "action": "STOP_JOB",
+            "job_id": "123", "allowed_scheduler_statuses": ["RUN", "PEND"],
+            "authorized_at": "2026-07-24T00:00:00Z", "source": "synthetic explicit user instruction",
+        },
+    })
+    calls = []
+    def run(argv):
+        calls.append(argv)
+        return type("Result", (), {"stdout": f"JOBID USER STAT\n123 user {live_status}\n"})()
+    monkeypatch.setattr(submission, "_run", run)
+    if live_status == "RUN":
+        submission.stop_job(path, "sunboquan-codex", "123", tmp_path / "stop.json")
+        assert calls == [["ssh", "sunboquan-codex", "bjobs", "-a", "123"],
+                         ["ssh", "sunboquan-codex", "bkill", "123"]]
+    else:
+        with pytest.raises(ValueError, match="changed from RUN"):
+            submission.stop_job(path, "sunboquan-codex", "123", tmp_path / "stop.json")
+        assert len(calls) == 1 and "bjobs" in calls[0]
+
+
+def test_stop_rejects_wrong_job_before_network(tmp_path, monkeypatch, bound_gate, scheduler_snapshot):
+    path = bound_gate({
+        "scheduler": scheduler_snapshot(),
+        "authorization": {"schema_version": 1, "document_kind": "user_execution_authorization",
+                          "action": "STOP_JOB", "job_id": "123", "allowed_scheduler_statuses": ["RUN"],
+                          "authorized_at": "2026-07-24T00:00:00Z", "source": "synthetic explicit user instruction"},
+    })
+    monkeypatch.setattr(submission, "_run", lambda *args: pytest.fail("wrong job reached network"))
+    with pytest.raises(ValueError, match="not bound to this active job"):
+        submission.stop_job(path, "sunboquan-codex", "456", tmp_path / "stop.json")

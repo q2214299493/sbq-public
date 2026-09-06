@@ -68,7 +68,6 @@ def _plan_command(args: argparse.Namespace) -> None:
             strategy_variant=args.strategy_variant,
             rebuild=args.rebuild,
             gate_decision=args.gate_decision,
-            gate_state_sha256=args.gate_state_sha256,
         )
     )
 
@@ -113,7 +112,6 @@ def _dimer_command(args: argparse.Namespace) -> None:
         reaction_indices=contract["reaction_atoms"],
         contract_binding=binding,
         gate_decision=args.gate_decision,
-        gate_state_sha256=args.gate_state_sha256,
     )
     print("DRY_RUN" if args.dry_run else args.destination)
 
@@ -192,7 +190,6 @@ def _record_validation_command(args: argparse.Namespace) -> None:
             args.validation_id,
             analysis,
             gate_decision=args.gate_decision,
-            gate_state_sha256=args.gate_state_sha256,
         )
     )
 
@@ -201,7 +198,6 @@ def _record_barrier_command(args: argparse.Namespace) -> None:
     payload = record_matched_static_barrier(
         args.database,
         gate_decision=args.gate_decision,
-        gate_state_sha256=args.gate_state_sha256,
         barrier_set_id=args.barrier_id,
         reaction_id=args.reaction_id,
         source_calculation_id=args.source_calculation_id,

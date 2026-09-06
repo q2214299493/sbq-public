@@ -70,7 +70,7 @@ def test_source_saddle_done_history_does_not_require_redundant_finished_at(
         )
 
 
-def authoritative_gate(database_path: Path, validation: dict) -> tuple[Path, str]:
+def authoritative_gate(database_path: Path, validation: dict, bound_gate) -> Path:
     decision = decide_search(
         {"status": "PASS"},
         {
@@ -83,9 +83,7 @@ def authoritative_gate(database_path: Path, validation: dict) -> tuple[Path, str
         True,
         validation=validation,
     )
-    path = database_path.with_name(f"{database_path.stem}_authoritative_gate.json")
-    path.write_text(json.dumps(decision), encoding="utf-8")
-    return path, decision["state_sha256"]
+    return bound_gate(decision["EVIDENCE"], directory=database_path.with_suffix(".gate"))
 
 
 def barrier_validation(**updates: str) -> dict:
@@ -173,7 +171,7 @@ def _insert_file(connection: sqlite3.Connection, file_id: str, calculation_id: s
     )
 
 
-def database(path: Path) -> Path:
+def database(path: Path, bound_gate) -> Path:
     active_contract = contract()
     saddle_path = path.parent / "saddle.vasp"
     frequency_poscar = path.parent / "frequency.POSCAR"
@@ -389,18 +387,16 @@ def database(path: Path) -> Path:
             "final_result_id": "fs_energy",
         },
     }
-    gate_path, gate_state = authoritative_gate(path, validation_payload)
+    gate_path = authoritative_gate(path, validation_payload, bound_gate)
     record_ts_validation(
         path,
         "validation_a",
         validation_payload,
         gate_decision=gate_path,
-        gate_state_sha256=gate_state,
     )
     record_matched_static_barrier(
         path,
         gate_decision=gate_path,
-        gate_state_sha256=gate_state,
         barrier_set_id="barrier_a",
         reaction_id="co_split",
         source_calculation_id="calc_ts",
@@ -439,14 +435,15 @@ def successful_record(**updates: object) -> dict:
     return record
 
 
-def test_matched_static_barrier_rejects_missing_completed_vasp_job_evidence(tmp_path: Path) -> None:
-    path = database(tmp_path / "registry.sqlite3")
-    gate_path, gate_state = authoritative_gate(
+def test_matched_static_barrier_rejects_missing_completed_vasp_job_evidence(tmp_path: Path, bound_gate) -> None:
+    path = database(tmp_path / "registry.sqlite3", bound_gate)
+    gate_path = authoritative_gate(
         path,
         barrier_validation(
             barrier_set_id="barrier_without_vasp_evidence",
             reaction_id="co_split_without_evidence",
         ),
+        bound_gate=bound_gate,
     )
     with sqlite3.connect(path) as connection:
         connection.execute("DELETE FROM job_status_history WHERE job_record_id='job_calc_ts_static'")
@@ -454,7 +451,6 @@ def test_matched_static_barrier_rejects_missing_completed_vasp_job_evidence(tmp_
         record_matched_static_barrier(
             path,
             gate_decision=gate_path,
-            gate_state_sha256=gate_state,
             barrier_set_id="barrier_without_vasp_evidence",
             reaction_id="co_split_without_evidence",
             source_calculation_id="calc_ts",
@@ -469,15 +465,16 @@ def test_matched_static_barrier_rejects_missing_completed_vasp_job_evidence(tmp_
         )
 
 
-def test_barrier_and_learning_record_roll_back_together(tmp_path: Path) -> None:
-    db = database(tmp_path / "registry.sqlite3")
+def test_barrier_and_learning_record_roll_back_together(tmp_path: Path, bound_gate) -> None:
+    db = database(tmp_path / "registry.sqlite3", bound_gate)
     barrier_id = "barrier_invalid_learning_record"
-    gate_path, gate_state = authoritative_gate(
+    gate_path = authoritative_gate(
         db,
         barrier_validation(
             barrier_set_id=barrier_id,
             reaction_id="co_split_invalid_learning_record",
         ),
+        bound_gate=bound_gate,
     )
     record = successful_record(
         template_id="template_invalid_learning_record",
@@ -492,7 +489,6 @@ def test_barrier_and_learning_record_roll_back_together(tmp_path: Path) -> None:
         record_matched_static_barrier(
             db,
             gate_decision=gate_path,
-            gate_state_sha256=gate_state,
             barrier_set_id=barrier_id,
             reaction_id="co_split_invalid_learning_record",
             source_calculation_id="calc_ts",
@@ -512,8 +508,8 @@ def test_barrier_and_learning_record_roll_back_together(tmp_path: Path) -> None:
         ).fetchone() is None
 
 
-def test_grade_a_template_is_evidence_bound_and_transferred(tmp_path: Path) -> None:
-    db = database(tmp_path / "registry.sqlite3")
+def test_grade_a_template_is_evidence_bound_and_transferred(tmp_path: Path, bound_gate) -> None:
+    db = database(tmp_path / "registry.sqlite3", bound_gate)
     assert validate_endpoint_evidence(db, contract())["status"] == "PASS"
     assert record_template(db, successful_record()) == "fe110_co_split_grade_a"
     ranked = rank_templates(fingerprint(), load_templates(db))
@@ -533,9 +529,10 @@ def test_grade_a_template_is_evidence_bound_and_transferred(tmp_path: Path) -> N
 
 
 def test_grade_a_dimer_template_does_not_require_optional_connectivity_files(
+    bound_gate,
     tmp_path: Path,
 ) -> None:
-    db = database(tmp_path / "registry.sqlite3")
+    db = database(tmp_path / "registry.sqlite3", bound_gate)
     with sqlite3.connect(db) as connection:
         connection.execute(
             "UPDATE ts_validations SET source_method='dimer', "
@@ -549,11 +546,12 @@ def test_grade_a_dimer_template_does_not_require_optional_connectivity_files(
     assert template["evidence_valid"] is True
 
 
-def test_barrier_gate_rejects_a_revoked_latest_matched_static_status(tmp_path: Path) -> None:
-    db = database(tmp_path / "registry.sqlite3")
-    gate_path, gate_state = authoritative_gate(
+def test_barrier_gate_rejects_a_revoked_latest_matched_static_status(tmp_path: Path, bound_gate) -> None:
+    db = database(tmp_path / "registry.sqlite3", bound_gate)
+    gate_path = authoritative_gate(
         db,
         barrier_validation(barrier_set_id="barrier_after_revocation"),
+        bound_gate=bound_gate,
     )
     with sqlite3.connect(db) as connection:
         connection.execute(
@@ -567,7 +565,6 @@ def test_barrier_gate_rejects_a_revoked_latest_matched_static_status(tmp_path: P
         record_matched_static_barrier(
             db,
             gate_decision=gate_path,
-            gate_state_sha256=gate_state,
             barrier_set_id="barrier_after_revocation",
             reaction_id="co_split",
             source_calculation_id="calc_ts",
@@ -582,8 +579,8 @@ def test_barrier_gate_rejects_a_revoked_latest_matched_static_status(tmp_path: P
         )
 
 
-def test_compatible_converged_sigma0p20_toten_chain_is_accepted(tmp_path: Path) -> None:
-    db = database(tmp_path / "registry.sqlite3")
+def test_compatible_converged_sigma0p20_toten_chain_is_accepted(tmp_path: Path, bound_gate) -> None:
+    db = database(tmp_path / "registry.sqlite3", bound_gate)
     compatibility = dict(contract()["compatibility"])
     compatibility["sigma_ev"] = 0.2
     compatibility["final_energy_convention"] = "fe110_converged_toten_sigma0p20_v1"
@@ -618,9 +615,10 @@ def test_compatible_converged_sigma0p20_toten_chain_is_accepted(tmp_path: Path) 
 
 
 def test_final_energy_chain_accepts_reviewed_expired_scheduler_record(
+    bound_gate,
     tmp_path: Path,
 ) -> None:
-    db = database(tmp_path / "registry.sqlite3")
+    db = database(tmp_path / "registry.sqlite3", bound_gate)
     compatibility = dict(contract()["compatibility"])
     compatibility["sigma_ev"] = 0.2
     compatibility["final_energy_convention"] = "fe110_converged_toten_sigma0p20_v1"
@@ -670,9 +668,10 @@ def test_final_energy_chain_accepts_reviewed_expired_scheduler_record(
 
 
 def test_final_energy_chain_uses_append_only_done_review_not_stale_summary_fields(
+    bound_gate,
     tmp_path: Path,
 ) -> None:
-    db = database(tmp_path / "registry.sqlite3")
+    db = database(tmp_path / "registry.sqlite3", bound_gate)
     with sqlite3.connect(db) as connection:
         connection.execute(
             "UPDATE calculations SET workflow_status='submitted' "
@@ -691,9 +690,10 @@ def test_final_energy_chain_uses_append_only_done_review_not_stale_summary_field
 
 
 def test_final_energy_chain_rejects_mixed_static_and_relaxation_statuses(
+    bound_gate,
     tmp_path: Path,
 ) -> None:
-    db = database(tmp_path / "registry.sqlite3")
+    db = database(tmp_path / "registry.sqlite3", bound_gate)
     with sqlite3.connect(db) as connection:
         connection.row_factory = sqlite3.Row
         connection.execute(
@@ -922,8 +922,8 @@ def test_path_and_review_are_checksum_bound_to_contract(tmp_path: Path) -> None:
     assert validate_path_review(review, report)[0] is False
 
 
-def test_plan_cli_runs_the_evidence_and_mapping_chain(tmp_path: Path) -> None:
-    db = database(tmp_path / "registry.sqlite3")
+def test_plan_cli_runs_the_evidence_and_mapping_chain(tmp_path: Path, bound_gate) -> None:
+    db = database(tmp_path / "registry.sqlite3", bound_gate)
     structure = Poscar(
         comment="Fe C O",
         cell=np.eye(3) * 10.0,

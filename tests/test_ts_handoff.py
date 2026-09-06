@@ -69,7 +69,7 @@ def test_prepare_ts_handoff_is_non_destructive_in_dry_run(tmp_path: Path) -> Non
         )
 
 
-def test_dimer_handoff_generates_reviewable_modecar(tmp_path: Path) -> None:
+def test_dimer_handoff_generates_reviewable_modecar(tmp_path: Path, bound_gate) -> None:
     def structure(c_x: float) -> Poscar:
         return Poscar(
             comment="Fe C O",
@@ -171,8 +171,7 @@ def test_dimer_handoff_generates_reviewable_modecar(tmp_path: Path) -> None:
         path_quality={"PATH_QUALITY_STATUS": "UNDERRESOLVED_REACTION_COORDINATE"},
         authorization={"action": "PREPARE_DIMER_HANDOFF"},
     )
-    gate_path = tmp_path / "gate.json"
-    gate_path.write_text(json.dumps(gate), encoding="utf-8")
+    gate_path = bound_gate(gate["EVIDENCE"])
     prepare_dimer_handoff(
         images / "01",
         images / "00",
@@ -184,7 +183,6 @@ def test_dimer_handoff_generates_reviewable_modecar(tmp_path: Path) -> None:
         reaction_indices=[1, 2],
         contract_binding=binding,
         gate_decision=gate_path,
-        gate_state_sha256=gate["state_sha256"],
     )
     rows = [[float(value) for value in line.split()] for line in (destination / "MODECAR").read_text().splitlines()]
     assert len(rows) == 3
